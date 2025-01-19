@@ -21,7 +21,6 @@
   "license": "MIT",
   "dependencies": {
     "jimp": "^1.6.0",
-    "node-vibrant": "^4.0.3",
     "quantize": "^1.0.2"
   }
 }
