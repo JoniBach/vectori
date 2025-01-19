@@ -1,0 +1,22 @@
+{
+  "name": "vectori",
+  "version": "0.0.1",
+  "description": "helpful utilities for creating vectorgraphics out of images",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "svg",
+    "vector",
+    "manipulation",
+    "image"
+  ],
+  "author": "jonibach",
+  "license": "MIT",
+  "dependencies": {
+    "jimp": "^1.6.0",
+    "node-vibrant": "^4.0.3",
+    "potrace": "^2.1.8"
+  }
+}
