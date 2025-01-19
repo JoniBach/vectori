@@ -1,4 +1,3 @@
-import { json } from "@sveltejs/kit";
 import { Jimp } from "jimp";
 import { Vibrant } from "node-vibrant/node";
 import { trace } from "potrace";
