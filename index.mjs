@@ -1,6 +1,7 @@
+// vectori
 import { Jimp } from "jimp";
-import { Vibrant } from "node-vibrant/node";
 import { trace } from "potrace";
+import quantize from "quantize";
 
 /**
  * Convert an RGB array ([R, G, B]) to a hex string (#rrggbb).
@@ -21,17 +22,23 @@ const computeEuclideanDistance = (a, b) =>
 
 /**
  * Find the closest color in a given palette to the specified color.
+ * If the palette is empty, returns the original color.
+ *
  * @param {number[]} color - A color ([R, G, B]) to match.
  * @param {number[][]} palette - An array of colors (each [R, G, B]).
  * @returns {number[]} The closest palette color ([R, G, B]).
  */
-const findClosestColor = (color, palette) =>
-  palette.reduce((prev, curr) =>
+const findClosestColor = (color, palette) => {
+  if (!palette || palette.length === 0) {
+    return color;
+  }
+  return palette.reduce((prev, curr) =>
     computeEuclideanDistance(curr, color) <
     computeEuclideanDistance(prev, color)
       ? curr
       : prev
   );
+};
 
 /**
  * Update the given Jimp image by mapping each pixel to the nearest color in `colorPalette`.
@@ -49,9 +56,7 @@ const processImage = (image, colorPalette) => {
       const red = this.bitmap.data[idx];
       const green = this.bitmap.data[idx + 1];
       const blue = this.bitmap.data[idx + 2];
-
       const closestColor = findClosestColor([red, green, blue], colorPalette);
-
       this.bitmap.data[idx] = closestColor[0];
       this.bitmap.data[idx + 1] = closestColor[1];
       this.bitmap.data[idx + 2] = closestColor[2];
@@ -63,7 +68,7 @@ const processImage = (image, colorPalette) => {
 /**
  * Scans the provided Jimp image and extracts all unique colors as hex strings.
  * @param {import('jimp').default} image - The Jimp image to process.
- * @returns {string[]} An array of unique hex color strings, e.g. ["#ffffff", "#000000", ...].
+ * @returns {string[]} An array of unique hex color strings.
  */
 function getAllColors(image) {
   const colorSet = new Set();
@@ -137,7 +142,6 @@ const separateColors = async (image, colorPalette) => {
             const red = this.bitmap.data[idx];
             const green = this.bitmap.data[idx + 1];
             const blue = this.bitmap.data[idx + 2];
-
             if (red !== color[0] || green !== color[1] || blue !== color[2]) {
               // Set non-matching colors to white
               this.bitmap.data[idx] = 255;
@@ -186,19 +190,19 @@ const separateGreyscaleColors = async (image, greyscalePalette) => {
           image.bitmap.width,
           image.bitmap.height,
           function (x, y, idx) {
-            const red = this.bitmap.data[idx + 0];
+            const red = this.bitmap.data[idx];
             const green = this.bitmap.data[idx + 1];
             const blue = this.bitmap.data[idx + 2];
             const grey = Math.round(0.3 * red + 0.59 * green + 0.11 * blue);
 
             if (Math.abs(grey - targetGrey) <= TOLERANCE) {
               // Force the pixel to the exact grayscale
-              this.bitmap.data[idx + 0] = targetGrey;
+              this.bitmap.data[idx] = targetGrey;
               this.bitmap.data[idx + 1] = targetGrey;
               this.bitmap.data[idx + 2] = targetGrey;
             } else {
               // Otherwise, turn pixel white
-              this.bitmap.data[idx + 0] = 255;
+              this.bitmap.data[idx] = 255;
               this.bitmap.data[idx + 1] = 255;
               this.bitmap.data[idx + 2] = 255;
             }
@@ -283,10 +287,8 @@ const mergeSvgs = (svgs) => {
 
   const finalWidth = maxX - minX;
   const finalHeight = maxY - minY;
-
   const mergedSvgHeader = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX} ${minY} ${finalWidth} ${finalHeight}" width="${finalWidth}" height="${finalHeight}">`;
   const mergedSvgFooter = `</svg>`;
-
   return `${mergedSvgHeader}\n${mergedSvgContent}\n${mergedSvgFooter}`;
 };
 
@@ -305,36 +307,42 @@ const createBuffer = async (file) => Buffer.from(await file.arrayBuffer());
 const createImage = async (buffer) => Jimp.read(buffer);
 
 /**
- * Use Vibrant to create a color palette from an image buffer.
- * @param {Buffer} buffer - Image data for Vibrant to analyze.
- * @returns {Promise<any>} Vibrant palette object.
+ * Create a custom color palette by extracting and clustering all (or sampled) colors
+ * from an image buffer into a specified number of common colors.
+ *
+ * @param {Buffer} buffer - The raw image data.
+ * @param {number} colorCount - Desired number of colors in the palette (default: 6).
+ * @returns {Promise<number[][]>} An array of [R, G, B] arrays, one for each cluster color.
  */
-const createPallet = async (buffer) =>
-  Vibrant.from(buffer).quality(2).getPalette();
+async function createPallet(buffer, colorCount = 6) {
+  // Read the image via Jimp
+  const image = await Jimp.read(buffer);
+  const { width, height } = image.bitmap;
+  const pixels = [];
 
-/**
- * Extract an array of [R, G, B] arrays from Vibrant’s palette.
- * @param {any} palette - The Vibrant palette object.
- * @returns {number[][]} An array of [R, G, B] from each swatch.
- */
-const createColorPalette = async (palette) =>
-  Object.values(palette)
-    .filter((swatch) => swatch && swatch._rgb)
-    .map((swatch) => swatch._rgb);
+  // Collect pixel data from every pixel (or sample if needed)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (width * y + x) << 2;
+      const r = image.bitmap.data[idx];
+      const g = image.bitmap.data[idx + 1];
+      const b = image.bitmap.data[idx + 2];
+      pixels.push([r, g, b]);
+    }
+  }
+
+  // Use quantize to cluster the pixel data
+  const paletteObject = quantize(pixels, colorCount);
+  const clusteredColors = paletteObject.palette();
+  return clusteredColors;
+}
 
 /**
  * Convert each [R, G, B] array in a palette to a hex string.
  * @param {number[][]} palette - An array of [R, G, B].
- * @returns {string[]} Array of hex strings, e.g. ["#ff0000", "#00ff00"].
+ * @returns {string[]} Array of hex strings.
  */
-const mapColorPaletteToHex = async (palette) => palette.map(rgbToHex);
-
-/**
- * Get a PNG buffer from a Jimp image.
- * @param {import('jimp').default} image - The Jimp image.
- * @returns {Promise<Buffer>} PNG buffer data.
- */
-const getBufferFromImage = async (image) => image.getBuffer("image/png");
+const mapColorPaletteToHex = (palette) => palette.map(rgbToHex);
 
 /**
  * Convert a PNG buffer to a base64 data URI (image/png).
@@ -366,10 +374,9 @@ const createSvgOutline = async (separatedColorSvgs) =>
   });
 
 /**
- * Extracts all unique  colors from a Jimp image.
- *
- * @param {Object} jimpImage - The Jimp image object to process.
- * @returns {string[]} An array of unique greyscale colors in hexadecimal format.
+ * Extract all unique colors from a Jimp image.
+ * @param {import('jimp').default} jimpImage - The Jimp image object.
+ * @returns {string[]} An array of unique hex colors.
  */
 const extractAllColors = (jimpImage) => {
   const allColors = new Set();
@@ -389,10 +396,9 @@ const extractAllColors = (jimpImage) => {
 };
 
 /**
- * Extracts all unique greyscale colors from a Jimp image.
- *
- * @param {Object} jimpImage - The Jimp image object to process.
- * @returns {string[]} An array of unique greyscale colors in hexadecimal format.
+ * Extract all unique greyscale colors from a Jimp image.
+ * @param {import('jimp').default} jimpImage - The Jimp image object.
+ * @returns {string[]} An array of unique greyscale hex colors.
  */
 const extractAllGreyscale = (jimpImage) => {
   const allColors = new Set();
@@ -415,45 +421,42 @@ const extractAllGreyscale = (jimpImage) => {
 };
 
 /**
- * Main function to convert an image File into various color-processed results:
- *  1. A color-mapped version and greyscale version (both base64).
- *  2. Color & greyscale separation images (array of base64).
- *  3. Traced SVGs for color & greyscale, plus outlined versions.
- *  4. Merged SVG layers in different fill modes.
+ * Main function to convert an image File into various color-processed results.
  *
  * @param {File} file - The uploaded image file.
  * @returns {Promise<{
  *  image: (opts: { fill?: 'color'|'greyscale' }) => string,
- *  palette: (opts: { fill?: 'color'|'greyscale' }) => string[],
+ *  palette: { vibrant: (opts: { fill?: 'color'|'greyscale' }) => string[],
+ *              all: (opts?: { fill?: 'color'|'greyscale' }) => string[] },
  *  components: {
  *    image: (opts: { fill?: 'color'|'greyscale' }) => string[],
- *    svg: (opts: { fill?: 'color'|'greyscale'|'outline' }) => string[],
+ *    svg: (opts: { fill?: 'color'|'greyscale'|'outline' }) => string[]
  *  },
  *  svg: (opts: { fill?: 'color'|'greyscale'|'outline'|'color-outline'|'greyscale-outline' }) => string
- * }>}
- * The final structured object offering dot-notation access to images, palettes, components, and merged SVGs.
+ * }>} A structured object with image data, palettes, and SVG variations.
  */
 export const vectori = async (file) => {
   // 1) Create a Buffer and Jimp image from the File
   const buffer = await createBuffer(file);
   const image = await createImage(buffer);
-  const palette = await createPallet(buffer);
 
-  // 2) Derive a color palette from Vibrant
-  const colorPaletteValues = await createColorPalette(palette);
+  // Use our custom palette function (which already returns an array of [R, G, B])
+  const colorPaletteValues = await createPallet(buffer);
   const colorPallet = mapColorPaletteToHex(colorPaletteValues);
+
+  // Also extract full color and greyscale sets directly from the image
   const allColorsPalette = extractAllColors(image);
   const greyscaleAllColorsPalette = extractAllGreyscale(image);
 
   // 3) Process the image with the color palette
   const processedImage = await processImage(image, colorPaletteValues);
-  const processedBuffer = await getBufferFromImage(processedImage);
+  const processedBuffer = await processedImage.getBuffer("image/png");
   const colorImage = await createImagePath(processedBuffer);
 
   // 4) Create a greyscale version
   const greyscaleImage = await createGreyscaleImage(image);
 
-  // 5) Extract a greyscale palette from the new greyscale image
+  // 5) Extract a greyscale palette from the greyscale image
   const greyscaleJimpImage = await createJimpImageFromBase64(greyscaleImage);
   const greyscalePalette = extractGreyscalePalette(greyscaleJimpImage);
 
@@ -464,34 +467,34 @@ export const vectori = async (file) => {
     greyscalePalette
   );
 
-  // 7) Convert each separated image into an SVG, using the color or greyscale palette
+  // 7) Convert each separated image into an SVG, using the appropriate palette
   const separatedColorSvgs = await traceImagesToSvgs(
     separatedColorImages,
-    await colorPallet
+    colorPallet
   );
-  const seperatedGreyscaleSvgs = await traceImagesToSvgs(
+  const separatedGreyscaleSvgs = await traceImagesToSvgs(
     separatedGreyscaleImages,
     greyscalePalette
   );
 
-  // 8) Create outlined versions (only from color SVGs in this example)
-  const seperatedOutlinedSvgs = await createSvgOutline(separatedColorSvgs);
+  // 8) Create outlined versions (from color SVGs)
+  const separatedOutlinedSvgs = await createSvgOutline(separatedColorSvgs);
 
   // 9) Merge different sets of SVG layers
   const mergedColorSvg = mergeSvgs(separatedColorSvgs);
-  const mergedGreyscaleSvg = mergeSvgs(seperatedGreyscaleSvgs);
-  const mergedOutlinedSvg = mergeSvgs(seperatedOutlinedSvgs);
+  const mergedGreyscaleSvg = mergeSvgs(separatedGreyscaleSvgs);
+  const mergedOutlinedSvg = mergeSvgs(separatedOutlinedSvgs);
   const mergedGreyscaleOutlinedSvg = mergeSvgs([
-    ...seperatedGreyscaleSvgs,
-    ...seperatedOutlinedSvgs,
+    ...separatedGreyscaleSvgs,
+    ...separatedOutlinedSvgs,
   ]);
   const mergedColorOutlinedSvg = mergeSvgs([
     ...separatedColorSvgs,
-    ...seperatedOutlinedSvgs,
+    ...separatedOutlinedSvgs,
   ]);
 
-  // 10) Return the final structured object with the same .image, .palette, .components, and .svg usage
-  const res = {
+  // 10) Return the final structured object
+  return {
     /** Return the main color or greyscale image (base64). */
     image: ({ fill = "color" }) => {
       if (fill === "greyscale") return greyscaleImage;
@@ -499,7 +502,7 @@ export const vectori = async (file) => {
     },
     /** Return the color or greyscale palette. */
     palette: {
-      vibrant: ({ fill = "color" }) => {
+      popular: ({ fill = "color" }) => {
         if (fill === "greyscale") return greyscalePalette;
         if (fill === "color") return colorPallet;
       },
@@ -516,8 +519,8 @@ export const vectori = async (file) => {
       },
       svg: ({ fill = "color" }) => {
         if (fill === "color") return separatedColorSvgs;
-        if (fill === "greyscale") return seperatedGreyscaleSvgs;
-        if (fill === "outline") return seperatedOutlinedSvgs;
+        if (fill === "greyscale") return separatedGreyscaleSvgs;
+        if (fill === "outline") return separatedOutlinedSvgs;
       },
     },
     /** Return merged SVG variations. */
@@ -529,6 +532,4 @@ export const vectori = async (file) => {
       if (fill === "greyscale-outline") return mergedGreyscaleOutlinedSvg;
     },
   };
-
-  return res;
 };
