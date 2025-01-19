@@ -1,6 +1,6 @@
 {
   "name": "vectori",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "helpful utilities for creating vectorgraphics out of images",
   "main": "index.js",
   "scripts": {
