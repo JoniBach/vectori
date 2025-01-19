@@ -13,6 +13,7 @@
     "manipulation",
     "image"
   ],
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/jonibach/vectori.git"
