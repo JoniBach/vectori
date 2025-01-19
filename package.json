@@ -2,10 +2,9 @@
   "name": "vectori",
   "version": "0.0.8",
   "description": "helpful utilities for creating vectorgraphics out of images",
-  "main": "index.js",
+  "main": "index.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "publish": "node ./scripts/publish.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "svg",
