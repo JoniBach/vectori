@@ -1,13 +1,12 @@
 const { execSync } = require("child_process");
 
-// Prevent infinite loop by checking if running inside npm publish
-if (process.env.npm_lifecycle_event !== "publish") {
+if (!process.env.PUBLISHING) {
   try {
     // Increment patch version
     execSync("npm version patch", { stdio: "inherit" });
 
-    // Publish the package
-    execSync("npm publish", { stdio: "inherit" });
+    // Set an environment variable to prevent recursion
+    execSync("PUBLISHING=true npm publish", { stdio: "inherit" });
 
     console.log(
       "Patch version incremented and package published successfully."
